@@ -1,0 +1,10 @@
+{
+  "email_addr": "liusen@xbotgo.com",
+  "email_password": "CL5FNyAft1i11lEM",
+  "custom_server": "imap.feishu.cn",
+  "custom_port": "993",
+  "output_dir": "/Users/bobo/Desktop/飞书邮件导出",
+  "connection_type": "imap",
+  "app_id": "",
+  "app_secret": ""
+}
