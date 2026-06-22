@@ -24,8 +24,8 @@
 ├── feishu_email.py          # 飞书开放平台 API 客户端（备用模块，当前 GUI 未启用）
 ├── gui.py                   # 图形界面启动入口（等价于 email_extractor_gui.main）
 ├── requirements.txt         # Python 运行时依赖
-├── build_windows_docker.sh  # Windows 打包脚本（基于 Docker + Wine，被 mac-build.command 调用）
-├── Dockerfile.windows       # Windows 打包专用 Docker 镜像
+├── github-windows-build.command # Windows 打包脚本（触发 GitHub Actions 并下载产物）
+├── .github/workflows/windows-build.yml # GitHub Actions Windows 打包配置
 ├── mac-build.command        # 跨平台打包入口（双击进菜单，或命令行 `mac|win|all`）
 ├── 启动工具.command          # macOS 一键启动脚本（双击运行）
 └── config.json              # 配置文件（首次运行后自动生成）
@@ -144,18 +144,18 @@ Excel 列定义：
 ```
 双击 mac-build.command
    ├─ 1) macOS   →  本机直接打 release/飞书邮箱提取工具.app
-   ├─ 2) Windows →  Docker 跨平台打 release_windows/FeishuEmailExtractor.exe
+   ├─ 2) Windows →  GitHub Actions 云端打 release_windows_github/邮件小助手.exe
    └─ 3) 两个平台都打
 ```
 
 脚本会逐步引导。第一次执行时会自动完成：
 - 找带 `tkinter` 的 Python（Homebrew 优先）
 - 创建 `venv` 虚拟环境并安装依赖
-- 拉取 `cdrx/pyinstaller-windows` Docker 镜像（约 2-3GB，仅首次）
+- 触发 GitHub Actions Windows runner 打包并下载产物
 
 > **前置条件**
 > - Mac 端：`brew install python-tk@3.x`（x 与 `python3` 主版本一致）
-> - Windows 端：本机已安装并启动 Docker Desktop
+> - Windows 打包：本机已安装并登录 GitHub CLI（`gh auth login`），并已将代码 push 到 GitHub 默认分支
 
 ### 单独打包（命令行）
 
@@ -165,8 +165,8 @@ Excel 列定义：
 # 产物: release/飞书邮箱提取工具.app
 
 # Windows 单文件 .exe
-./build_windows_docker.sh
-# 产物: release_windows/FeishuEmailExtractor.exe
+./github-windows-build.command
+# 产物: release_windows_github/邮件小助手.exe
 ```
 
 ## 打包为 .app（macOS 详细）
@@ -190,16 +190,18 @@ Excel 列定义：
 ## 打包为 .exe（Windows 详细）
 
 ```bash
-./build_windows_docker.sh
+./github-windows-build.command
 ```
 
 脚本会自动：
-1. 检查 Docker 是否运行
-2. 根据 `Dockerfile.windows` 构建本地镜像（基于 `cdrx/pyinstaller-windows`，内置 Wine + Windows 版 Python + PyInstaller）
-3. 在容器内跑 PyInstaller，打出 `release_windows/FeishuEmailExtractor.exe`（单文件，约 20-30MB）
-4. 无需 Windows 机器或虚拟机，全程在 Mac 上完成
+1. 检查当前目录是否为 Git 仓库
+2. 检查 GitHub CLI（`gh`）是否已安装并登录
+3. 确认当前分支已推送到 GitHub
+4. 触发 `.github/workflows/windows-build.yml`
+5. 等待云端 Windows runner 用 PyInstaller 打包
+6. 下载 `windows-exe` artifact 到 `release_windows_github/邮件小助手.exe`
 
-> 第一次构建 Docker 镜像较慢（5-10 分钟，含下载），之后秒级缓存。
+> GitHub Actions 只会使用已经 push 到 GitHub 的代码。打包前请确认相关改动已经 commit 并 push。
 > 产出的 `.exe` 是单文件版本，复制到任何 Windows 电脑双击即可运行（首次启动约 5-10 秒解压）。
 
 ## 常见问题
@@ -224,17 +226,14 @@ Excel 列定义：
 通常是 Homebrew Python 的 TCL/TK 路径问题。`mac-build.command` 已自动复制 `/opt/homebrew/lib/tcl8.6` 与 `tk8.6` 到 app 的 `Resources/`，如仍闪退可在终端中执行 `release/飞书邮箱提取工具.app/Contents/MacOS/飞书邮箱提取工具` 查看详细错误。
 
 ### Q: Windows 端是单文件 .exe 还是文件夹？
-采用 `--onefile` 单文件形式，便于复制分发。首次启动会花 5-10 秒在临时目录解压，之后启动正常。如希望启动更快，可将 `build_windows_docker.sh` 里的 `--onefile` 改为 `--onedir` 改为文件夹形式。
-
-### Q: Docker 镜像有多大？占空间吗？
-`cdrx/pyinstaller-windows` 基础镜像约 2-3GB，用于在 Linux 容器中通过 Wine 调起 Windows 版 PyInstaller。打包完成后可以 `docker rmi feishu-email-win-builder:latest` 主动清理以释放空间。
+采用 `--onefile` 单文件形式，便于复制分发。首次启动会花 5-10 秒在临时目录解压，之后启动正常。如希望启动更快，可将 `.github/workflows/windows-build.yml` 里的 `--onefile` 改为 `--onedir` 改为文件夹形式。
 
 ### Q: 能否在 Windows 机器上直接打 Windows 包？
-可以。在 Windows 上跳过 Docker，直接在 PowerShell 中执行：
+可以。在 Windows 上直接在 PowerShell 中执行：
 ```powershell
 py -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-pyinstaller --onefile --windowed --name=FeishuEmailExtractor --hidden-import=tkinter email_extractor_gui.py
+pyinstaller --onefile --windowed --name=邮件小助手 --hidden-import=tkinter email_extractor_gui.py
 ```
-产物在 `dist\FeishuEmailExtractor.exe`。
+产物在 `dist\邮件小助手.exe`。

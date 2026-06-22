@@ -93,7 +93,7 @@ rm -rf "$DOWNLOAD_DIR"
 mkdir -p "$DOWNLOAD_DIR"
 gh run download "$RUN_ID" --name "$ARTIFACT_NAME" --dir "$DOWNLOAD_DIR"
 
-EXE_PATH="$DOWNLOAD_DIR/FeishuEmailExtractor.exe"
+EXE_PATH="$DOWNLOAD_DIR/邮件小助手.exe"
 if [ ! -f "$EXE_PATH" ]; then
     echo -e "${RED}✗ 下载失败，未找到 $EXE_PATH${NC}"
     exit 1

@@ -1,6 +1,6 @@
 openpyxl>=3.1.0
 requests>=2.28.0
 
-# 打包工具（build_windows_docker.sh / mac-build.command 启动时自动安装）
-# 锁定到 6.x 以避免 7.x 在 Wine 下偶发的兼容问题
+# 打包工具（mac-build.command / GitHub Actions 启动时自动安装）
+# 锁定到 6.x，避免未来主版本变化影响打包结果
 pyinstaller>=6.6.0,<7.0

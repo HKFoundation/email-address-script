@@ -27,7 +27,7 @@ jobs:
         shell: pwsh
         run: |
           python -m PyInstaller `
-            --name="FeishuEmailExtractor" `
+            --name="邮件小助手" `
             --onefile `
             --windowed `
             --distpath=release_windows `
@@ -40,5 +40,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: release_windows/FeishuEmailExtractor.exe
+          path: release_windows/邮件小助手.exe
           if-no-files-found: error

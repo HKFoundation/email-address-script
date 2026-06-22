@@ -5,7 +5,7 @@
 # 双击 = 进入交互菜单
 # 命令行调用：
 #   mac-build.command mac    只打 macOS
-#   mac-build.command win    只打 Windows
+#   mac-build.command win    通过 GitHub Actions 打 Windows
 #   mac-build.command all    两个都打
 #   mac-build.command        弹出菜单
 
@@ -235,32 +235,26 @@ LAUNCHER
 }
 
 # ============================================================
-# Windows 打包（通过 Docker 跨平台构建）
-# 容器内逻辑在 build_windows_docker.sh，这里只做编排
+# Windows 打包（通过 GitHub Actions 云端构建）
+# 具体逻辑在 github-windows-build.command，这里只做编排
 # ============================================================
 build_windows() {
     show_banner
     echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}  开始打包 Windows 应用 (Docker)${NC}"
+    echo -e "${BLUE}  开始打包 Windows 应用 (GitHub Actions)${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
 
-    if ! command -v docker &> /dev/null; then
-        echo -e "${RED}✗ 未检测到 Docker${NC}"
-        echo "请先安装 Docker Desktop: https://www.docker.com/products/docker-desktop"
+    if [ ! -f "github-windows-build.command" ]; then
+        echo -e "${RED}✗ 缺少 github-windows-build.command${NC}"
         return 1
     fi
 
-    if [ ! -f "build_windows_docker.sh" ]; then
-        echo -e "${RED}✗ 缺少 build_windows_docker.sh${NC}"
-        return 1
-    fi
-
-    chmod +x build_windows_docker.sh
-    if bash ./build_windows_docker.sh; then
+    chmod +x github-windows-build.command
+    if bash ./github-windows-build.command; then
         echo ""
         echo -e "${GREEN}✓ Windows 打包成功！${NC}"
-        echo "产物: $SCRIPT_DIR/release_windows/FeishuEmailExtractor.exe"
+        echo "产物: $SCRIPT_DIR/release_windows_github/邮件小助手.exe"
         return 0
     else
         echo ""
@@ -296,7 +290,7 @@ case "${1:-}" in
             echo -e "${GREEN}✓ 两个平台均打包成功${NC}"
             echo ""
             echo "Mac 产物:    $SCRIPT_DIR/release/飞书邮箱提取工具.app"
-            echo "Windows 产物: $SCRIPT_DIR/release_windows/FeishuEmailExtractor.exe"
+            echo "Windows 产物: $SCRIPT_DIR/release_windows_github/邮件小助手.exe"
         else
             echo -e "${YELLOW}部分平台打包失败 (macOS=$MAC_RESULT, Windows=$WIN_RESULT)${NC}"
         fi
@@ -305,7 +299,7 @@ case "${1:-}" in
     help|-h|--help)
         echo "用法: $0 [mac|win|all|help]"
         echo "  mac    只打 macOS（生成 release/飞书邮箱提取工具.app）"
-        echo "  win    只打 Windows（生成 release_windows/FeishuEmailExtractor.exe，需 Docker）"
+        echo "  win    只打 Windows（通过 GitHub Actions 生成 release_windows_github/邮件小助手.exe）"
         echo "  all    两个平台都打"
         echo "  无参   弹出交互菜单（默认 10 秒后选 3=两个都打）"
         echo "  help   显示此帮助"
@@ -322,7 +316,7 @@ prompt_choice() {
     echo -e "${GREEN}请选择打包目标:${NC}"
     echo ""
     echo -e "  ${BLUE}1${NC}) macOS   → 生成 ${YELLOW}飞书邮箱提取工具.app${NC} (本机直接打包)"
-    echo -e "  ${BLUE}2${NC}) Windows → 生成 ${YELLOW}FeishuEmailExtractor.exe${NC} (需 Docker)"
+    echo -e "  ${BLUE}2${NC}) Windows → 生成 ${YELLOW}邮件小助手.exe${NC} (GitHub Actions)"
     echo -e "  ${BLUE}3${NC}) 两个平台都打"
     echo -e "  ${BLUE}0${NC}) 退出"
     echo ""
@@ -369,7 +363,7 @@ while true; do
                 echo -e "${GREEN}✓ 两个平台均打包成功${NC}"
                 echo ""
                 echo "Mac 产物:    $SCRIPT_DIR/release/飞书邮箱提取工具.app"
-                echo "Windows 产物: $SCRIPT_DIR/release_windows/FeishuEmailExtractor.exe"
+                echo "Windows 产物: $SCRIPT_DIR/release_windows_github/邮件小助手.exe"
             else
                 echo -e "${YELLOW}部分平台打包失败 (macOS=$MAC_RESULT, Windows=$WIN_RESULT)${NC}"
             fi
