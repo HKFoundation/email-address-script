@@ -1,16 +1,16 @@
 # 飞书邮箱信息提取工具
 
-通过 IMAP 协议连接飞书邮箱（也支持 QQ / 163 / Gmail / Outlook / 阿里云等），按时间范围获取邮件，自动提取邮件中的联系信息（邮箱、电话、地址），并导出为 Excel。
+通过 IMAP 协议连接飞书邮箱（也支持 QQ / 163 / Gmail / Outlook / 阿里云等），按时间范围获取邮件，并导出为 Excel。项目内置联系信息提取模块，当前 Excel 的"联系信息"列为预留列。
 
 ## 功能特性
 
 - **IMAP 邮箱直连**：无需管理员审批，使用邮箱账号 + 授权码即可连接
 - **自动识别邮箱服务商**：根据邮箱后缀自动选择 IMAP 服务器
 - **多种时间范围**：今天、最近 3 天、最近一周、最近一月、自定义起止日期
-- **自动提取联系信息**：邮箱地址、电话号码（中/美/英/德/日/韩等）、联系地址
+- **联系信息识别模块**：内置邮箱地址、电话号码（中/美/英/德/日/韩等）、联系地址识别逻辑，当前导出列暂未填充
 - **Excel 导出**：单文件输出，包含发件邮箱、标题、正文链接、收件时间等列
 - **正文本地归档**：每封邮件的正文另存为 `.txt`，Excel 中"邮件链接"列可一键跳转
-- **配置记忆**：邮箱、服务器、输出目录等自动保存到 `config.json`
+- **配置记忆**：获取邮件或导出时，邮箱、服务器、输出目录等会保存到 `config.json`
 - **macOS 原生体验**：自绘圆角按钮 + 居中式双栏布局
 
 ## 文件结构
@@ -28,7 +28,7 @@
 ├── .github/workflows/windows-build.yml # GitHub Actions Windows 打包配置
 ├── mac-build.command        # 跨平台打包入口（双击进菜单，或命令行 `mac|win|all`）
 ├── 启动工具.command          # macOS 一键启动脚本（双击运行）
-└── config.json              # 配置文件（首次运行后自动生成）
+└── config.json              # 配置文件（获取邮件或导出时保存/更新）
 ```
 
 ## 快速开始（macOS）
@@ -53,7 +53,7 @@ python email_extractor_gui.py
 1. 在左侧 **IMAP 邮箱配置** 中填入：
    - 邮箱地址
    - 授权密码（QQ / 163 / Gmail 等需要使用授权码，不是登录密码）
-   - 服务器与端口（默认 `imap.feishu.cn:993`，可手动修改）
+   - 服务器与端口（服务器留空时按邮箱后缀自动识别；也可手动填写，如 `imap.feishu.cn:993`）
 2. 可选：点击 **测试连接** 验证配置是否正确
 3. 选择 **邮件时间范围**（今天 / 最近 3 天 / 最近一周 / 最近一月 / 自定义）
 4. 设置 **输出目录**（默认 `~/Desktop/飞书邮件导出`）
@@ -123,7 +123,7 @@ Excel 列定义：
 
 ## 配置文件
 
-运行后会在脚本所在目录生成 `config.json`，保存以下字段：
+获取邮件或导出时会在脚本所在目录保存/更新 `config.json`，包含以下字段：
 
 | 字段 | 说明 |
 |------|------|
@@ -148,10 +148,9 @@ Excel 列定义：
    └─ 3) 两个平台都打
 ```
 
-脚本会逐步引导。第一次执行时会自动完成：
-- 找带 `tkinter` 的 Python（Homebrew 优先）
-- 创建 `venv` 虚拟环境并安装依赖
-- 触发 GitHub Actions Windows runner 打包并下载产物
+脚本会逐步引导：
+- 选择 macOS 时，会查找带 `tkinter` 的 Python、创建 `venv`、安装依赖并生成 `.app`
+- 选择 Windows 时，会调用 GitHub Actions Windows runner 打包并下载 `.exe`
 
 > **前置条件**
 > - Mac 端：`brew install python-tk@3.x`（x 与 `python3` 主版本一致）
@@ -234,6 +233,6 @@ Excel 列定义：
 py -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
-pyinstaller --onefile --windowed --name=邮件小助手 --hidden-import=tkinter email_extractor_gui.py
+pyinstaller --onefile --windowed --name=邮件小助手 --distpath=release_windows --workpath=build_windows --specpath=. --hidden-import=tkinter email_extractor_gui.py
 ```
-产物在 `dist\邮件小助手.exe`。
+产物在 `release_windows\邮件小助手.exe`。
