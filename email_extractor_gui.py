@@ -12,7 +12,43 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 import threading
 
-from contact_extractor import GlobalContactExtractor
+def check_and_install_dependencies():
+    """检查并自动安装缺失的依赖"""
+    import importlib
+    import subprocess
+    import sys
+
+    required = {
+        'tkinter': None,  # 内置模块
+        'openpyxl': 'openpyxl',
+        'requests': 'requests',
+        'phonenumbers': 'phonenumbers',
+    }
+
+    missing = []
+    for module_name, package_name in required.items():
+        try:
+            if module_name == 'tkinter':
+                importlib.import_module(module_name)
+            else:
+                importlib.import_module(module_name)
+        except ImportError:
+            missing.append(package_name or module_name)
+
+    if missing:
+        print("发现缺失依赖，正在安装...")
+        for pkg in missing:
+            try:
+                subprocess.check_call([sys.executable, '-m', 'pip', 'install', pkg])
+            except subprocess.CalledProcessError:
+                print(f"安装 {pkg} 失败，请手动运行: pip install {pkg}")
+                sys.exit(1)
+        print("✓ 所有依赖已安装")
+
+
+check_and_install_dependencies()
+
+from advanced_contact_extractor import AdvancedContactExtractor, StructuredContact
 from excel_exporter import ExcelExporter
 from imap_client import IMAPEmailClient
 
@@ -65,7 +101,7 @@ class FeishuEmailExtractorGUI:
 
         # 初始化组件
         self.imap_client: Optional[IMAPEmailClient] = None
-        self.extractor = GlobalContactExtractor()
+        self.extractor = AdvancedContactExtractor()
         self.exporter: Optional[ExcelExporter] = None
         self.all_emails: List[Dict] = []
 
@@ -491,10 +527,11 @@ class FeishuEmailExtractorGUI:
                 if i % 10 == 0:
                     self._log(f"处理进度: {i}/{len(emails)}")
 
-                # 使用 HTML 正文提取联系信息
+                # 使用高级提取器提取结构化联系信息
                 body = email.get('body_html') or email.get('body_text') or ''
-                contact_info = self.extractor.extract_all(body)
-                email['contact_info'] = contact_info.to_display_string()
+                contact = self.extractor.extract(body)
+                email['contact_info'] = contact.to_display_string()
+                email['structured_contact'] = contact
 
             self.root.after(0, lambda: self._fetch_complete(emails))
 

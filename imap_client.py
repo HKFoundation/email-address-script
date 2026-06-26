@@ -270,7 +270,9 @@ class IMAPEmailClient:
 
             # 搜索邮件
             start_str = start_date.strftime("%d-%b-%Y")
-            end_str = end_date.strftime("%d-%b-%Y")
+            # BEFORE 是排他的，所以需要给结束日期加一天来包含当天
+            end_date_inclusive = end_date + timedelta(days=1)
+            end_str = end_date_inclusive.strftime("%d-%b-%Y")
 
             search_criteria = f'SINCE {start_str} BEFORE {end_str}'
             result, message_ids = self.connection.search(None, search_criteria)

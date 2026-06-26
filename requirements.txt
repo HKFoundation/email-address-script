@@ -1,5 +1,6 @@
 openpyxl>=3.1.0
 requests>=2.28.0
+phonenumbers>=8.13.0
 
 # 打包工具（mac-build.command / GitHub Actions 启动时自动安装）
 # 锁定到 6.x，避免未来主版本变化影响打包结果

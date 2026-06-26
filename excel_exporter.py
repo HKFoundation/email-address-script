@@ -21,7 +21,7 @@ class ExcelExporter:
         ("发件邮箱", 35),
         ("邮件标题", 35),
         ("邮件链接", 20),
-        ("联系信息", 15),
+        ("联系信息", 45),
         ("收件时间", 30),
     ]
 
@@ -33,6 +33,7 @@ class ExcelExporter:
     # 数据样式
     DATA_FONT = Font(name='微软雅黑', size=10)
     DATA_ALIGNMENT = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    LEFT_ALIGNMENT = Alignment(horizontal='left', vertical='top', wrap_text=True)
     ALT_ROW_FILL = PatternFill(start_color='E8F0FE', end_color='E8F0FE', fill_type='solid')
 
     # 边框样式
@@ -80,10 +81,10 @@ class ExcelExporter:
         max_lines = 1
         for col_idx in range(1, len(self.COLUMNS) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            if cell.value and self.COLUMNS[col_idx - 1][0] != "邮件链接":
+            if cell.value and col_idx != 4:  # 邮件链接列不需要计算换行
                 text = str(cell.value).replace(f'=HYPERLINK("{os.path.join(os.getcwd(), "")}', '')
-                # 粗略估算换行数（按每行50字符计算）
-                lines = max(1, (len(text) + 49) // 50)
+                # 粗略估算换行数（按每行30字符计算）
+                lines = max(1, (len(text) + 29) // 30)
                 max_lines = max(max_lines, lines)
         
         # 设置行高：基础高度 + (换行数 - 1) * 每行高度
@@ -93,7 +94,11 @@ class ExcelExporter:
         for col_idx in range(1, len(self.COLUMNS) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.font = self.DATA_FONT
-            cell.alignment = self.DATA_ALIGNMENT
+            # 联系信息列左对齐，其他列居中
+            if col_idx == 5:
+                cell.alignment = self.LEFT_ALIGNMENT
+            else:
+                cell.alignment = self.DATA_ALIGNMENT
             cell.border = self.THIN_BORDER
 
             # 交替行背景色
@@ -157,8 +162,14 @@ class ExcelExporter:
                 link_text = ''
             ws.cell(row=row_idx, column=4, value=link_text)
 
-            # 联系信息 - 预留列，暂不填充
-            ws.cell(row=row_idx, column=5, value='')
+            # 结构化联系信息（合并到一个单元格）
+            contact = email.get('structured_contact')
+            if contact:
+                contact_str = contact.to_display_string()
+            else:
+                # 兼容旧的联系信息格式
+                contact_str = email.get('contact_info', '')
+            ws.cell(row=row_idx, column=5, value=contact_str)
 
             # 收件时间
             received = email.get('received_at', '')
