@@ -528,7 +528,7 @@ class FeishuEmailExtractorGUI:
                     self._log(f"处理进度: {i}/{len(emails)}")
 
                 # 使用高级提取器提取结构化联系信息
-                body = email.get('body_html') or email.get('body_text') or ''
+                body = email.get('body_text') or email.get('body_html') or ''
                 contact = self.extractor.extract(body)
                 email['contact_info'] = contact.to_display_string()
                 email['structured_contact'] = contact

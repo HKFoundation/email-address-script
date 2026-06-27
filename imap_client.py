@@ -6,9 +6,11 @@ IMAP 邮箱连接模块
 import imaplib
 import email
 from email.header import decode_header
+from email.utils import parsedate_to_datetime
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 import re
+import html
 
 
 class IMAPEmailClient:
@@ -177,10 +179,218 @@ class IMAPEmailClient:
 
         return ("", "")
 
+    def _parse_date_to_iso(self, date_text: str) -> str:
+        """尽量将邮件日期文本解析为 ISO 字符串，失败时保留原文。"""
+        if not date_text:
+            return ""
+
+        cleaned = self._clean_header_value(date_text)
+        normalized = cleaned.replace("\u202f", " ").replace("\xa0", " ")
+        normalized = re.sub(r"\bat\b", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\s+", " ", normalized).strip().rstrip(",")
+
+        patterns = [
+            "%a, %d %b %Y, %I:%M %p",
+            "%a, %d %b %Y %I:%M %p",
+            "%a, %d %b %Y, %H:%M",
+            "%a, %d %b %Y %H:%M",
+            "%d %b %Y, %I:%M %p",
+            "%d %b %Y %I:%M %p",
+            "%d %b %Y, %H:%M",
+            "%d %b %Y %H:%M",
+        ]
+        for pattern in patterns:
+            try:
+                return datetime.strptime(normalized, pattern).isoformat()
+            except Exception:
+                pass
+
+        for candidate in [cleaned, normalized]:
+            try:
+                return parsedate_to_datetime(candidate).isoformat()
+            except Exception:
+                pass
+
+        return cleaned
+
+    def _clean_header_value(self, value: str) -> str:
+        """清理从正文回复块里解析出的头字段。"""
+        value = html.unescape(value or "")
+        value = value.replace("\u202f", " ").replace("\xa0", " ")
+        value = re.sub(r"<\s*(https?://|mailto:)[^>]+>", "", value, flags=re.IGNORECASE)
+        value = re.sub(r"\s+", " ", value).strip()
+        return value.strip(" \t\r\n:：")
+
+    def _normalize_message_id(self, value: str) -> str:
+        """规范化 Message-ID 头字段。"""
+        value = self._clean_header_value(value)
+        match = re.search(r"<([^>]+)>", value)
+        if match:
+            return f"<{match.group(1).strip()}>"
+        return value
+
+    def _parse_references(self, value: str) -> List[str]:
+        """解析 References / In-Reply-To 里的 Message-ID 列表。"""
+        if not value:
+            return []
+        ids = [f"<{item.strip()}>" for item in re.findall(r"<([^>]+)>", value)]
+        if not ids:
+            cleaned = self._normalize_message_id(value)
+            ids = [cleaned] if cleaned else []
+
+        result = []
+        seen = set()
+        for item in ids:
+            if item and item not in seen:
+                seen.add(item)
+                result.append(item)
+        return result
+
+    def _html_to_text(self, text: str) -> str:
+        """将 HTML 正文转成适合清理引用历史的纯文本。"""
+        if not text:
+            return ""
+
+        text = html.unescape(text)
+        text = re.sub(r"(?is)<\s*(?:script|style)\b.*?</\s*(?:script|style)\s*>", " ", text)
+        text = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", text)
+        text = re.sub(r"(?i)</\s*(?:p|div|li|tr|td|table|blockquote|h[1-6])\s*>", "\n", text)
+        text = re.sub(r"(?i)<\s*(?:p|div|li|tr|td|table|blockquote|h[1-6])\b[^>]*>", "\n", text)
+        text = re.sub(r"<[^>]+>", " ", text)
+        return text
+
+    def _prepare_thread_text(self, text: str) -> str:
+        """统一正文文本，移除引用符号但保留换行结构。"""
+        if not text:
+            return ""
+
+        text = html.unescape(text)
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = text.replace("\xa0", " ").replace("\u202f", " ")
+        text = text.replace("\u200b", "").replace("\u200c", "").replace("\u200d", "")
+
+        lines = []
+        blank_count = 0
+        for raw_line in text.split("\n"):
+            line = re.sub(r"^\s*(?:>\s*)+", "", raw_line).strip()
+            line = re.sub(r"\s+", " ", line).strip()
+            if not line:
+                blank_count += 1
+                if blank_count <= 1:
+                    lines.append("")
+                continue
+            blank_count = 0
+            lines.append(line)
+
+        return "\n".join(lines).strip()
+
+    def _normalize_actual_message(self, email_dict: Dict) -> Dict:
+        """只保留 IMAP 真实邮件的当前正文，并去掉引用历史和签名。"""
+        body_source = email_dict.get('body_text') or self._html_to_text(email_dict.get('body_html', ''))
+        current_body = self._extract_current_body(body_source)
+        current_body = self._strip_signature(current_body)
+
+        result = email_dict.copy()
+        result['body_text'] = current_body
+        result['body_html'] = ''
+        return result
+
+    def _extract_current_body(self, text: str) -> str:
+        """截掉正文里的历史回复/转发内容，仅保留当前这封邮件正文。"""
+        prepared = self._prepare_thread_text(text)
+        if not prepared:
+            return ""
+
+        lines = prepared.split("\n")
+        current_lines = []
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if self._is_forwarded_marker(stripped):
+                break
+            if self._is_header_block_start(lines, idx):
+                break
+            if self._parse_wrote_marker(stripped, {}):
+                break
+            current_lines.append(line)
+
+        return self._clean_thread_body(current_lines)
+
+    def _strip_signature(self, text: str) -> str:
+        """移除常见邮件签名，避免签名干扰信息提取。"""
+        if not text:
+            return ""
+
+        signature_patterns = [
+            r"^--\s*$",
+            r"^(best|best regards|kind regards|regards|warm regards|sincerely|thanks|thank you|cheers)[,!.]?$",
+            r"^sent from my .+",
+            r"^发自我的.+",
+            r"^此致[,，]?$",
+            r"^祝好[,，]?$",
+        ]
+
+        kept = []
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if kept and any(re.match(pattern, stripped, re.IGNORECASE) for pattern in signature_patterns):
+                break
+            kept.append(line)
+
+        return "\n".join(kept).strip()
+
+    def _clean_thread_body(self, body_lines: List[str]) -> str:
+        lines = []
+        blank_count = 0
+        for line in body_lines:
+            stripped = line.strip()
+            if self._is_forwarded_marker(stripped):
+                continue
+            if not stripped:
+                blank_count += 1
+                if blank_count <= 1:
+                    lines.append("")
+                continue
+            blank_count = 0
+            lines.append(stripped)
+        return "\n".join(lines).strip()
+
+    def _is_forwarded_marker(self, line: str) -> bool:
+        return bool(re.search(r"^-+\s*Forwarded message\s*-+$", line, re.IGNORECASE))
+
+    def _is_header_block_start(self, lines: List[str], idx: int) -> bool:
+        if idx >= len(lines) or not re.match(r"(?i)^from\s*:", lines[idx].strip()):
+            return False
+        window = "\n".join(line.strip() for line in lines[idx: idx + 6])
+        return bool(re.search(r"(?im)^(date|subject|to|cc)\s*:", window))
+
+    def _parse_wrote_marker(self, line: str, inherited_meta: Dict) -> Optional[Dict]:
+        match = re.match(r"(?is)^on\s+(.+),\s*(.+?)\s+wrote\s*:\s*$", line)
+        if not match:
+            return None
+
+        date_text = match.group(1)
+        sender_text = match.group(2)
+        name, sender_email = self._parse_email_address(sender_text)
+        if not sender_email:
+            sender_text = self._clean_header_value(sender_text)
+            name = sender_text.strip('"')
+
+        meta = inherited_meta.copy()
+        meta['sender_name'] = name
+        meta['sender_email'] = sender_email
+        meta['received_at'] = self._parse_date_to_iso(date_text)
+        return meta
+
     def _parse_email(self, raw_email, message_id: str) -> Dict:
         """解析邮件内容"""
         result = {
             'message_id': message_id,
+            'email_message_id': '',
+            'in_reply_to': '',
+            'references': [],
+            'thread_root_message_id': '',
+            'thread_parent_message_id': '',
+            'thread_depth': 0,
             'subject': '',
             'sender_name': '',
             'sender_email': '',
@@ -194,6 +404,16 @@ class IMAPEmailClient:
         subject = raw_email.get('Subject', '')
         result['subject'] = self._decode_email_header(subject)
 
+        # 解析 IMAP/RFC 线程头。它们只能关联真实邮件，不能拆正文里复制出来的历史内容。
+        result['email_message_id'] = self._normalize_message_id(raw_email.get('Message-ID', ''))
+        references = self._parse_references(raw_email.get('References', ''))
+        in_reply_to = self._parse_references(raw_email.get('In-Reply-To', ''))
+        result['references'] = references
+        result['in_reply_to'] = in_reply_to[-1] if in_reply_to else ''
+        result['thread_parent_message_id'] = result['in_reply_to'] or (references[-1] if references else '')
+        result['thread_root_message_id'] = references[0] if references else result['email_message_id']
+        result['thread_depth'] = len(references)
+
         # 解析发件人
         sender = raw_email.get('From', '')
         name, email = self._parse_email_address(sender)
@@ -202,13 +422,7 @@ class IMAPEmailClient:
 
         # 解析收件时间
         received = raw_email.get('Date', '')
-        try:
-            # 尝试解析日期
-            from email.utils import parsedate_to_datetime
-            dt = parsedate_to_datetime(received)
-            result['received_at'] = dt.isoformat()
-        except:
-            result['received_at'] = received
+        result['received_at'] = self._parse_date_to_iso(received)
 
         # 解析邮件正文
         if raw_email.is_multipart():
@@ -298,12 +512,11 @@ class IMAPEmailClient:
                         # 检查日期是否在范围内
                         if email_dict['received_at']:
                             try:
-                                from email.utils import parsedate_to_datetime
                                 email_date = parsedate_to_datetime(email_dict['received_at'])
                                 if start_date <= email_date <= end_date:
-                                    emails.append(email_dict)
+                                    emails.append(self._normalize_actual_message(email_dict))
                             except:
-                                emails.append(email_dict)
+                                emails.append(self._normalize_actual_message(email_dict))
 
                 except Exception as e:
                     # 单封邮件解析失败不影响其他邮件
