@@ -18,10 +18,11 @@ class ExcelExporter:
     # 列定义
     COLUMNS = [
         ("序号", 8),
-        ("发件邮箱", 35),
-        ("邮件标题", 35),
+        ("发件邮箱", 30),
+        ("邮件标题", 30),
         ("邮件链接", 20),
-        ("联系信息", 45),
+        ("收货信息", 45),
+        ("收款信息", 45),
         ("收件时间", 30),
     ]
 
@@ -33,7 +34,7 @@ class ExcelExporter:
     # 数据样式
     DATA_FONT = Font(name='微软雅黑', size=10)
     DATA_ALIGNMENT = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    LEFT_ALIGNMENT = Alignment(horizontal='left', vertical='top', wrap_text=True)
+    LEFT_ALIGNMENT = Alignment(horizontal='left', vertical='center', wrap_text=True)
     ALT_ROW_FILL = PatternFill(start_color='E8F0FE', end_color='E8F0FE', fill_type='solid')
 
     # 边框样式
@@ -47,6 +48,7 @@ class ExcelExporter:
     # 行高设置
     DEFAULT_ROW_HEIGHT = 15  # 默认行高（磅）
     ROW_HEIGHT_INCREMENT = 15  # 行高增量（磅）
+    MIN_STRUCTURED_FIELDS = 5
 
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
@@ -57,6 +59,7 @@ class ExcelExporter:
         wb = Workbook()
         ws = wb.active
         ws.title = "邮件记录"
+        ws.freeze_panes = "A2"
 
         # 设置列宽
         for col_idx, (_, width) in enumerate(self.COLUMNS, 1):
@@ -83,19 +86,21 @@ class ExcelExporter:
             cell = ws.cell(row=row_idx, column=col_idx)
             if cell.value and col_idx != 4:  # 邮件链接列不需要计算换行
                 text = str(cell.value).replace(f'=HYPERLINK("{os.path.join(os.getcwd(), "")}', '')
-                # 粗略估算换行数（按每行30字符计算）
-                lines = max(1, (len(text) + 29) // 30)
+                lines = self._estimate_wrapped_lines(text, self.COLUMNS[col_idx - 1][1])
                 max_lines = max(max_lines, lines)
         
-        # 设置行高：基础高度 + (换行数 - 1) * 每行高度
-        base_height = self.DEFAULT_ROW_HEIGHT + self.ROW_HEIGHT_INCREMENT
-        ws.row_dimensions[row_idx].height = base_height + (max_lines - 1) * self.DEFAULT_ROW_HEIGHT
+        # 设置行高：按实际换行数预留空间，避免收货/收款长内容被截断
+        min_height = self.DEFAULT_ROW_HEIGHT + self.ROW_HEIGHT_INCREMENT
+        ws.row_dimensions[row_idx].height = max(
+            min_height,
+            max_lines * self.ROW_HEIGHT_INCREMENT + 10,
+        )
 
         for col_idx in range(1, len(self.COLUMNS) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.font = self.DATA_FONT
-            # 联系信息列左对齐，其他列居中
-            if col_idx == 5:
+            # 收货信息、收款信息列左对齐，其他列居中
+            if col_idx in (5, 6):
                 cell.alignment = self.LEFT_ALIGNMENT
             else:
                 cell.alignment = self.DATA_ALIGNMENT
@@ -104,6 +109,15 @@ class ExcelExporter:
             # 交替行背景色
             if row_idx % 2 == 0:
                 cell.fill = self.ALT_ROW_FILL
+
+    def _estimate_wrapped_lines(self, text: str, column_width: int) -> int:
+        """按单元格换行和列宽估算显示所需行数。"""
+        chars_per_line = max(8, int(column_width) - 2)
+        line_count = 0
+        for line in str(text).splitlines() or [""]:
+            line_length = max(1, len(line))
+            line_count += max(1, (line_length + chars_per_line - 1) // chars_per_line)
+        return line_count
 
     def _get_filename(self) -> str:
         """生成文件名"""
@@ -162,22 +176,33 @@ class ExcelExporter:
                 link_text = ''
             ws.cell(row=row_idx, column=4, value=link_text)
 
-            # 结构化联系信息（合并到一个单元格）
+            # 结构化收货信息和收款信息
             contact = email.get('structured_contact')
             if contact:
-                contact_str = contact.to_display_string()
+                shipping_info = (
+                    contact.to_shipping_display_string()
+                    if contact.shipping_field_count() >= self.MIN_STRUCTURED_FIELDS
+                    else ''
+                )
+                payment_info = (
+                    contact.to_payment_display_string()
+                    if contact.payment_field_count() >= self.MIN_STRUCTURED_FIELDS
+                    else ''
+                )
             else:
-                # 兼容旧的联系信息格式
-                contact_str = email.get('contact_info', '')
-            ws.cell(row=row_idx, column=5, value=contact_str)
+                # 旧格式无法保证字段完整性和字段范围，因此不写入这两列。
+                shipping_info = ''
+                payment_info = ''
+            ws.cell(row=row_idx, column=5, value=shipping_info)
+            ws.cell(row=row_idx, column=6, value=payment_info)
 
             # 收件时间
             received = email.get('received_at', '')
             if isinstance(received, str) and received:
                 received_time = received[:19].replace('T', ' ')
-                ws.cell(row=row_idx, column=6, value=received_time)
+                ws.cell(row=row_idx, column=7, value=received_time)
             else:
-                ws.cell(row=row_idx, column=6, value='')
+                ws.cell(row=row_idx, column=7, value='')
 
             self._apply_row_style(ws, row_idx, len(emails))
 
